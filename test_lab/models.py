@@ -1,0 +1,25 @@
+from django.db import models
+
+class Match(models.Model):
+    class Meta:
+        db_table = 'match'
+
+    Race = models.TextChoices('Race','Protoss Terran Zerg Random')
+    Difficulty = models.TextChoices('Difficulty',
+        'Easy Medium MediumHard Hard Harder VeryHard CheatVision CheatMoney CheatInsane')
+    Build = models.TextChoices('Build', 'Air Macro Power Rush Timing RandomBuild')
+    Result = models.TextChoices('Result', 'Victory Defeat Tie Undecided')
+
+    test_group_id = models.IntegerField()
+    start_timestamp = models.DateTimeField()
+    end_timestamp = models.DateTimeField(null=True, blank=True)
+    map_name = models.CharField(max_length=100)
+    opponent_race = models.CharField(max_length=7, choices=Race)
+    opponent_difficulty = models.CharField(max_length=11, choices=Difficulty)
+    opponent_build = models.CharField(max_length=15, choices=Build)
+    result = models.CharField(max_length=50, choices=Result)
+    replay_path = models.CharField(max_length=255, null=True, blank=True)
+    duration_in_game_time = models.IntegerField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Group {self.test_group_id} - {self.map_name} vs {self.opponent_race}-{self.opponent_build} ({self.result})"
