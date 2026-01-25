@@ -10,6 +10,7 @@ class Match(models.Model):
     Build = models.TextChoices('Build', 'Air Macro Power Rush Timing RandomBuild')
     Result = models.TextChoices('Result', 'Victory Defeat Tie Undecided')
 
+    id = models.AutoField(primary_key=True)
     test_group_id = models.IntegerField()
     start_timestamp = models.DateTimeField()
     end_timestamp = models.DateTimeField(null=True, blank=True)
@@ -23,3 +24,15 @@ class Match(models.Model):
 
     def __str__(self):
         return f"Group {self.test_group_id} - {self.map_name} vs {self.opponent_race}-{self.opponent_build} ({self.result})"
+
+class MatchEvent(models.Model):
+    class Meta:
+        db_table = 'match_event'
+
+    id = models.AutoField(primary_key=True)
+    match = models.ForeignKey(Match, on_delete=models.CASCADE)
+    message = models.TextField()
+    timestamp = models.DateTimeField()
+
+    def __str__(self):
+        return f"Match {self.match.id} Event at {self.timestamp}: {self.message}"
