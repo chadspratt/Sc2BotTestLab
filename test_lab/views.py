@@ -306,7 +306,7 @@ def trigger_tests(request):
                     
                     # Start the process with output redirected to log file
                     with open(log_file, 'w') as log:
-                        process = subprocess.Popen(command, cwd=docker_compose_path, stderr=log)
+                        process = subprocess.Popen(command, cwd=docker_compose_path, stdout=log, stderr=log)
                     processes.append((process, f"{race}_{build}"))
             
             difficulty_msg = f" with difficulty {difficulty}" if difficulty else ""

@@ -112,7 +112,8 @@
                         {% if match_data %}
                         <td class="{% if match_data.result == 'Victory' %}victory{% elif match_data.result == 'Defeat' %}defeat{% elif match_data.result == 'Crash' %}crash{% elif match_data.result == 'Pending' %}pending{% endif %}">
                             <a href="{% url 'serve_replay' match_id=match_data.id %}">{{ match_data.id }}</a>
-                            <a href="{% url 'serve_log' match_id=match_data.id %}" target="_blank">{{ match_data.duration_in_game_time|format_duration }}</a>
+                            <a href="{% url 'serve_log' match_id=match_data.id %}" target="_blank">{{ match_data.duration_in_game_time|format_duration }}</a><br>
+                            <small>{{ match_data.map_name }}</small>
                         </td>
                         {% else %}
                         <td>-</td>
