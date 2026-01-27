@@ -6,4 +6,5 @@ urlpatterns = [
     path('trigger-tests/', views.trigger_tests, name='trigger_tests'),
     path('replay/<int:match_id>/', views.serve_replay, name='serve_replay'),
     path('log/<int:match_id>/', views.serve_log, name='serve_log'),
+    path('maps/', views.map_breakdown, name='map_breakdown'),
 ]

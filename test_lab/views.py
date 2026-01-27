@@ -354,3 +354,186 @@ def serve_log(request, match_id):
     file_path = log_files[0]  # Take the first matching file
     
     return FileResponse(open(file_path, 'rb'), content_type='text/plain')
+
+def map_breakdown(request):
+    """View to display match data grouped by map in a pivot table."""
+    # Define difficulty order to match the filter dropdown
+    difficulty_order = [
+        'Easy', 'Medium', 'MediumHard', 'Hard', 'Harder', 'VeryHard',
+        'CheatVision', 'CheatMoney', 'CheatInsane'
+    ]
+    
+    # Get difficulty filter from request
+    selected_difficulty = request.GET.get('difficulty', '')
+    
+    matches = Match.objects.using('sc2bot_test_lab_db').all().exclude(test_group_id=-1)
+    
+    # Apply difficulty filter if selected
+    if selected_difficulty:
+        matches = matches.filter(opponent_difficulty=selected_difficulty)
+    
+    # Group matches by map and create pivot structure
+    grouped_matches = defaultdict(lambda: defaultdict(list))  # map -> opponent -> [matches]
+    all_opponents = set()
+    difficulty_groups = defaultdict(lambda: defaultdict(list))  # difficulty -> race -> builds
+    
+    # Track win/loss counts for each map/opponent combination
+    map_opponent_stats = defaultdict(lambda: {'victories': 0, 'total_games': 0, 'total_duration': 0, 'games_with_duration': 0})
+    
+    for match in matches:
+        opponent_name = f"{match.opponent_race}-{match.opponent_difficulty}-{match.opponent_build}"
+        all_opponents.add(opponent_name)
+        
+        # Group by map
+        grouped_matches[match.map_name][opponent_name].append(match)
+        
+        # Track stats for this map/opponent combination
+        key = (match.map_name, opponent_name)
+        if match.result in ['Victory', 'Defeat']:
+            map_opponent_stats[key]['total_games'] += 1
+            if match.result == 'Victory':
+                map_opponent_stats[key]['victories'] += 1
+        
+        if match.duration_in_game_time is not None and match.duration_in_game_time > 0:
+            map_opponent_stats[key]['total_duration'] += match.duration_in_game_time
+            map_opponent_stats[key]['games_with_duration'] += 1
+        
+        # Build hierarchical structure for headers
+        difficulty_groups[match.opponent_difficulty][match.opponent_race].append(match.opponent_build)
+    
+    # Sort and deduplicate builds within each race/difficulty group
+    for difficulty in difficulty_groups:
+        for race in difficulty_groups[difficulty]:
+            difficulty_groups[difficulty][race] = sorted(list(set(difficulty_groups[difficulty][race])))
+    
+    # Create ordered list of opponents for consistent column ordering
+    sorted_opponents = []
+    sorted_difficulties = sorted(difficulty_groups.keys(), key=lambda x: difficulty_order.index(x) if x in difficulty_order else 999)
+    
+    # Build header structure and opponent order
+    header_structure = []
+    for difficulty in sorted_difficulties:
+        races = sorted(difficulty_groups[difficulty].keys())
+        difficulty_span = sum(len(difficulty_groups[difficulty][race]) for race in races)
+        
+        race_headers = []
+        for race in races:
+            builds = difficulty_groups[difficulty][race]
+            for build in builds:
+                opponent_name = f"{race}-{difficulty}-{build}"
+                sorted_opponents.append(opponent_name)
+            
+            race_headers.append({
+                'name': race,
+                'span': len(builds),
+                'builds': builds
+            })
+        
+        header_structure.append({
+            'difficulty': difficulty,
+            'span': difficulty_span,
+            'races': race_headers
+        })
+    
+    # Sort maps alphabetically
+    sorted_maps = sorted(grouped_matches.keys())
+    
+    # Create the pivot table data
+    pivot_data = []
+    for map_name in sorted_maps:
+        row = {'map_name': map_name, 'results': []}
+        
+        for opponent in sorted_opponents:
+            key = (map_name, opponent)
+            stats = map_opponent_stats[key]
+            
+            # Calculate win percentage for this map/opponent combo
+            if stats['total_games'] > 0:
+                win_percentage = (stats['victories'] / stats['total_games']) * 100
+                win_rate_str = f"{win_percentage:.0f}%"
+            else:
+                win_rate_str = None
+            
+            # Calculate average duration for this map/opponent combo
+            if stats['games_with_duration'] > 0:
+                avg_duration = int(stats['total_duration'] / stats['games_with_duration'])
+            else:
+                avg_duration = None
+            
+            cell_data = {
+                'win_rate': win_rate_str,
+                'avg_duration': avg_duration,
+                'wins': stats['victories'],
+                'games_played': stats['total_games']
+            }
+            
+            row['results'].append(cell_data)
+        
+        pivot_data.append(row)
+    
+    # Calculate win rates for header structure (same as match_list)
+    opponent_stats = defaultdict(lambda: {'victories': 0, 'total_games': 0})
+    for opponent in sorted_opponents:
+        for map_name in sorted_maps:
+            key = (map_name, opponent)
+            stats = map_opponent_stats[key]
+            opponent_stats[opponent]['total_games'] += stats['total_games']
+            opponent_stats[opponent]['victories'] += stats['victories']
+    
+    # Calculate win rates by race within each difficulty
+    for difficulty_group in header_structure:
+        difficulty_name = difficulty_group['difficulty']
+        for race_group in difficulty_group['races']:
+            race_name = race_group['name']
+            race_victories = 0
+            race_total_games = 0
+            
+            for opponent in sorted_opponents:
+                if opponent.startswith(f"{race_name}-{difficulty_name}-"):
+                    stats = opponent_stats[opponent]
+                    race_total_games += stats['total_games']
+                    race_victories += stats['victories']
+            
+            if race_total_games > 0:
+                race_win_percentage = (race_victories / race_total_games) * 100
+                race_group['win_rate'] = f"{race_win_percentage:.0f}%"
+            else:
+                race_group['win_rate'] = "-"
+            
+            # Add win rates to individual builds
+            for i, build in enumerate(race_group['builds']):
+                opponent_name = f"{race_name}-{difficulty_name}-{build}"
+                stats = opponent_stats[opponent_name]
+                if stats['total_games'] > 0:
+                    build_win_percentage = (stats['victories'] / stats['total_games']) * 100
+                    race_group['builds'][i] = f"{build} {build_win_percentage:.0f}%"
+                else:
+                    race_group['builds'][i] = f"{build} -"
+    
+    # Calculate win rates by difficulty
+    difficulty_win_rates = {}
+    for difficulty in sorted_difficulties:
+        difficulty_victories = 0
+        difficulty_total_games = 0
+        for opponent in sorted_opponents:
+            if f"-{difficulty}-" in opponent:
+                stats = opponent_stats[opponent]
+                difficulty_total_games += stats['total_games']
+                difficulty_victories += stats['victories']
+        
+        if difficulty_total_games > 0:
+            difficulty_win_percentage = (difficulty_victories / difficulty_total_games) * 100
+            difficulty_win_rates[difficulty] = f"{difficulty_win_percentage:.0f}%"
+        else:
+            difficulty_win_rates[difficulty] = "-"
+    
+    # Add difficulty win rates to header structure
+    for difficulty_group in header_structure:
+        difficulty_group['win_rate'] = difficulty_win_rates.get(difficulty_group['difficulty'], "-")
+    
+    return render(request, 'test_lab/map_breakdown.html', {
+        'pivot_data': pivot_data,
+        'opponents': sorted_opponents,
+        'header_structure': header_structure,
+        'selected_difficulty': selected_difficulty
+    })
