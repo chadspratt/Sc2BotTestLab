@@ -31,8 +31,9 @@ class MatchEvent(models.Model):
 
     id = models.AutoField(primary_key=True)
     match = models.ForeignKey(Match, on_delete=models.CASCADE)
+    type = models.CharField(max_length=50)
     message = models.TextField()
-    timestamp = models.DateTimeField()
+    game_timestamp = models.FloatField()
 
     def __str__(self):
-        return f"Match {self.match.id} Event at {self.timestamp}: {self.message}"
+        return f"Match {self.match.id} {self.type} Event at {self.game_timestamp}: {self.message}"

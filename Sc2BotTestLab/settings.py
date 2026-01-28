@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,7 +22,7 @@ DATABASE_DIR = Path(r'C:\Users\inter\Documents\db')
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-6o%(_eah!d+e-s+3q)6o=m6_$=enl95mig-@%nff(p*@h5qzpo'
+SECRET_KEY = config('SECRET_KEY', default='django-insecure-6o%(_eah!d+e-s+3q)6o=m6_$=enl95mig-@%nff(p*@h5qzpo')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -82,6 +83,14 @@ DATABASES = {
     'sc2bot_test_lab_db': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': DATABASE_DIR / 'match_data.db',
+    },
+    'sc2bot_test_lab_db_2': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': config('DB_NAME', default='sc_bot'),
+        'USER': config('DB_USER', default='root'),
+        'PASSWORD': config('DB_PASSWORD', default='default'),
+        'HOST': config('DB_HOST', default='localhost'),
+        'PORT': config('DB_PORT', default='3306'),
     }
 }
 

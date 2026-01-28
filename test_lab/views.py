@@ -1,14 +1,15 @@
 import subprocess
 import os
-import sqlite3
 import glob
 from datetime import datetime
 from collections import defaultdict
 
-from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.db.models import Max
 from django.http import HttpResponse, Http404, HttpResponseRedirect
+from django.shortcuts import render, redirect
 from django.urls import reverse
+
 from .models import Match
 
 def match_list(request):
@@ -26,7 +27,7 @@ def match_list(request):
     print(f"DEBUG: All GET parameters: {request.GET}")
     print(f"DEBUG: Selected difficulty filter: '{selected_difficulty}'")
     
-    matches = Match.objects.using('sc2bot_test_lab_db').all().exclude(test_group_id=-1)
+    matches = Match.objects.using('sc2bot_test_lab_db_2').all().exclude(test_group_id=-1)
     
     # Debug: Print total matches before filtering
     print(f"DEBUG: Total matches before filtering: {matches.count()}")
@@ -220,42 +221,27 @@ def match_list(request):
 
 def get_next_test_group_id() -> int:
     """Get the next test group ID by incrementing the highest completed test group ID."""
-    conn = sqlite3.connect(r'c:\Users\inter\Documents\db\match_data.db')
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT MAX(test_group_id) FROM match WHERE end_timestamp IS NOT NULL
-    ''')
-    
-    result = cursor.fetchone()[0]
-    conn.close()
+    result = Match.objects.using('sc2bot_test_lab_db_2').filter(
+        end_timestamp__isnull=False
+    ).aggregate(Max('test_group_id'))['test_group_id__max']
     
     # If no completed matches exist, start at 0, otherwise increment by 1
     return 0 if result is None else result + 1
 
 def create_pending_match(test_group_id: int, race: str, build: str, difficulty: str) -> int:
     """Create a pending match entry and return the match ID."""
-    conn = sqlite3.connect(r'c:\Users\inter\Documents\db\match_data.db')
-    cursor = conn.cursor()
-
-    cursor.execute('''
-        INSERT INTO match (test_group_id, start_timestamp, map_name, opponent_race, opponent_difficulty, opponent_build, result)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        test_group_id,
-        datetime.now().isoformat(),
-        "TBD",  # Map will be determined by run_bottato_vs_computer.py
-        race.capitalize(),
-        difficulty or "CheatInsane",
-        build.capitalize(),
-        "Pending"
-    ))
-
-    match_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    assert isinstance(match_id, int)
-    return match_id
+    match = Match(
+        test_group_id=test_group_id,
+        start_timestamp=datetime.now(),
+        map_name="TBD",  # Map will be determined by run_bottato_vs_computer.py
+        opponent_race=race.capitalize(),
+        opponent_difficulty=difficulty or "CheatInsane",
+        opponent_build=build.capitalize(),
+        result="Pending"
+    )
+    match.save(using='sc2bot_test_lab_db_2')
+    assert isinstance(match.id, int)
+    return match.id
 
 def trigger_tests(request):
     """Trigger the test suite by starting Docker containers directly."""
@@ -366,7 +352,7 @@ def map_breakdown(request):
     # Get difficulty filter from request
     selected_difficulty = request.GET.get('difficulty', '')
     
-    matches = Match.objects.using('sc2bot_test_lab_db').all().exclude(test_group_id=-1)
+    matches = Match.objects.using('sc2bot_test_lab_db_2').all().exclude(test_group_id=-1)
     
     # Apply difficulty filter if selected
     if selected_difficulty:
@@ -441,8 +427,11 @@ def map_breakdown(request):
     # Create the pivot table data
     pivot_data = []
     for map_name in sorted_maps:
-        row = {'map_name': map_name, 'results': []}
-        
+        row = {'map_name': map_name, 'results': [], 'overall_win_rate': None, 'overall_avg_duration': None, 'overall_wins': 0, 'overall_games': 0}
+        map_total_victories = 0
+        map_total_games = 0
+        map_total_duration = 0
+        map_games_with_duration = 0
         for opponent in sorted_opponents:
             key = (map_name, opponent)
             stats = map_opponent_stats[key]
@@ -468,7 +457,26 @@ def map_breakdown(request):
             }
             
             row['results'].append(cell_data)
+            map_total_victories += stats['victories']
+            map_total_games += stats['total_games']
+            map_total_duration += stats['total_duration']
+            map_games_with_duration += stats['games_with_duration']
         
+        if map_total_games > 0:
+            overall_win_percentage = (map_total_victories / map_total_games) * 100
+            row['overall_win_rate'] = f"{overall_win_percentage:.0f}%"
+            row['overall_wins'] = map_total_victories
+            row['overall_games'] = map_total_games
+        else:
+            row['overall_win_rate'] = None
+            row['overall_wins'] = 0
+            row['overall_games'] = 0
+        
+        if map_games_with_duration > 0:
+            row['overall_avg_duration'] = int(map_total_duration / map_games_with_duration)
+        else:
+            row['overall_avg_duration'] = None
+
         pivot_data.append(row)
     
     # Calculate win rates for header structure (same as match_list)

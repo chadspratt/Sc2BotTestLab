@@ -28,6 +28,7 @@
         .nav-links a:hover { background-color: #0056b3; }
         
         .trigger-section { margin-bottom: 20px; }
+        .narrow-column { width: 80px; min-width: 80px; padding: 4px; }
     </style>
 </head>
 <body>
@@ -65,6 +66,8 @@
                 <!-- Top level: Difficulty headers -->
                 <tr>
                     <th rowspan="3" class="map-column">Map</th>
+                    <th rowspan="3" class="narrow-column">Win Rate</th>
+                    <th rowspan="3" class="narrow-column">Avg Game Length</th>
                     {% for difficulty_group in header_structure %}
                     <th colspan="{{ difficulty_group.span }}" class="difficulty-header {% if not forloop.last %}difficulty-border-right{% endif %}">{{ difficulty_group.difficulty }} {{ difficulty_group.win_rate }}</th>
                     {% endfor %}
@@ -92,6 +95,18 @@
                 {% for row in pivot_data %}
                 <tr>
                     <td class="map-column"><strong>{{ row.map_name }}</strong></td>
+                    <td>
+                        {% if row.overall_win_rate %}
+                            {% with win_pct=row.overall_win_rate|slice:':-1'|add:'0' %}
+                            <span class="{% if win_pct >= 80 %}very-high-winrate{% elif win_pct >= 60 %}high-winrate{% elif win_pct >= 40 %}medium-winrate{% elif win_pct >= 20 %}low-winrate{% else %}very-low-winrate{% endif %}" style="padding: 4px; border-radius: 3px;">
+                                {{ row.overall_win_rate }} ({{ row.overall_wins }}/{{ row.overall_games }})
+                            </span>
+                            {% endwith %}
+                        {% else %}
+                            <span class="no-data" style="padding: 4px; border-radius: 3px;">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ row.overall_avg_duration|format_duration|default:"-" }}</td>
                     {% for cell_data in row.results %}
                         {% if cell_data.win_rate %}
                             {% with win_pct=cell_data.win_rate|slice:':-1'|add:'0' %}
