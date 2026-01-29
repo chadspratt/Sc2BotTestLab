@@ -19,7 +19,6 @@ class Match(models.Model):
     opponent_difficulty = models.CharField(max_length=11, choices=Difficulty)
     opponent_build = models.CharField(max_length=15, choices=Build)
     result = models.CharField(max_length=50, choices=Result)
-    replay_path = models.CharField(max_length=255, null=True, blank=True)
     duration_in_game_time = models.IntegerField(null=True, blank=True)
 
     def __str__(self):
