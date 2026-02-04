@@ -1,16 +1,17 @@
-import subprocess
-import os
 import glob
-from datetime import datetime
+import os
+import subprocess
 from collections import defaultdict
+from datetime import datetime
 
 from django.contrib import messages
 from django.db.models import Max
-from django.http import HttpResponse, Http404, HttpResponseRedirect
-from django.shortcuts import render, redirect
+from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 
 from .models import Match
+
 
 def match_list(request):
     """View to display match data grouped by test_group_id in a pivot table."""
@@ -367,6 +368,8 @@ def map_breakdown(request):
     map_opponent_stats = defaultdict(lambda: {'victories': 0, 'total_games': 0, 'total_duration': 0, 'games_with_duration': 0})
     
     for match in matches:
+        if match.map_name == "TBD":
+            continue  # Skip matches without a valid map name
         opponent_name = f"{match.opponent_race}-{match.opponent_difficulty}-{match.opponent_build}"
         all_opponents.add(opponent_name)
         
