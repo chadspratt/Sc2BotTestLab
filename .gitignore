@@ -1,1 +1,4 @@
 *.pyc
+.env
+db.sqlite3
+test_lab/migrations/*.py
