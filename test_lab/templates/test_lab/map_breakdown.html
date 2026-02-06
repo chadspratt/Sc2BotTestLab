@@ -26,8 +26,6 @@
         .nav-links { margin: 20px 0; }
         .nav-links a { margin-right: 20px; padding: 10px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; }
         .nav-links a:hover { background-color: #0056b3; }
-        
-        .trigger-section { margin-bottom: 20px; }
         .narrow-column { width: 80px; min-width: 80px; padding: 4px; }
     </style>
 </head>
@@ -35,6 +33,7 @@
     <div class="nav-links">
         <a href="{% url 'match_list' %}{% if selected_difficulty %}?difficulty={{ selected_difficulty }}{% endif %}">View by Test Group</a>
         <a href="{% url 'map_breakdown' %}{% if selected_difficulty %}?difficulty={{ selected_difficulty }}{% endif %}">View by Map</a>
+        <a href="{% url 'building_timing' %}">Building Timing</a>
     </div>
     
     <h1>Map Breakdown</h1>

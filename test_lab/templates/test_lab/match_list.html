@@ -39,6 +39,7 @@
     <div class="nav-links">
         <a href="{% url 'match_list' %}{% if selected_difficulty %}?difficulty={{ selected_difficulty }}{% endif %}">View by Test Group</a>
         <a href="{% url 'map_breakdown' %}{% if selected_difficulty %}?difficulty={{ selected_difficulty }}{% endif %}">View by Map</a>
+        <a href="{% url 'building_timing' %}">Building Timing</a>
     </div>
     <h1>Match Test Results</h1>
     
@@ -82,30 +83,23 @@
     {% if pivot_data %}
         <table>
             <thead>
-                <!-- Top level: Difficulty headers -->
+                <!-- Two level headers: Race and Build -->
                 <tr>
-                    <th rowspan="3" class="test-group-column">Test Group</th>
-                    <th rowspan="3" class="narrow-column">Win %</th>
-                    <th rowspan="3" class="narrow-column">Avg Length</th>
-                    {% for difficulty_group in header_structure %}
-                    <th colspan="{{ difficulty_group.span }}" class="difficulty-header {% if not forloop.last %}difficulty-border-right{% endif %}">{{ difficulty_group.difficulty }} {{ difficulty_group.win_rate }}</th>
-                    {% endfor %}
-                </tr>
-                <!-- Second level: Race headers -->
-                <tr>
-                    {% for difficulty_group in header_structure %}
-                        {% for race_group in difficulty_group.races %}
+                    <th rowspan="2" class="test-group-column">Test Group</th>
+                    <th rowspan="2" class="narrow-column">Win %</th>
+                    <th rowspan="2" class="narrow-column">Avg Length</th>
+                    <th rowspan="2" class="narrow-column">Difficulty</th>
+                    {% for race_group in header_structure %}
                         <th colspan="{{ race_group.span }}" class="race-header {% if not forloop.last %}race-border-right{% elif not forloop.parentloop.last %}difficulty-border-right{% endif %}">{{ race_group.name }} {{ race_group.win_rate }}</th>
-                        {% endfor %}
                     {% endfor %}
                 </tr>
-                <!-- Third level: Build headers -->
+                <!-- Second level: Build headers -->
                 <tr>
-                    {% for difficulty_group in header_structure %}
-                        {% for race_group in difficulty_group.races %}
-                            {% for build in race_group.builds %}
-                            <th class="opponent-header {% if forloop.last and not forloop.parentloop.last %}race-border-right{% elif forloop.last and forloop.parentloop.last and not forloop.parentloop.parentloop.last %}difficulty-border-right{% endif %}">{{ build }}</th>
-                            {% endfor %}
+                    {% for race_group in header_structure %}
+                        {% for build in race_group.builds %}
+                        <th class="opponent-header {% if forloop.last and not forloop.parentloop.last %}race-border-right{% elif forloop.last and forloop.parentloop.last and not forloop.parentloop.parentloop.last %}difficulty-border-right{% endif %}">
+                            {{ build }}
+                        </th>
                         {% endfor %}
                     {% endfor %}
                 </tr>
@@ -116,6 +110,7 @@
                     <td class="test-group-column"><strong>{{ row.test_group_id }}</strong></td>
                     <td class="narrow-column"><strong>{{ row.group_win_percentage }}</strong></td>
                     <td class="narrow-column"><strong>{{ row.avg_duration|format_duration }}</strong></td>
+                    <td class="narrow-column"><strong>{{ row.difficulty }}</strong></td>
                     {% for match_data in row.results %}
                         {% if match_data %}
                         <td class="{% if match_data.result == 'Victory' %}victory{% elif match_data.result == 'Defeat' %}defeat{% elif match_data.result == 'Crash' %}crash{% elif match_data.result == 'Pending' %}pending{% endif %}">

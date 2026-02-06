@@ -5,12 +5,12 @@ from collections import defaultdict
 from datetime import datetime
 
 from django.contrib import messages
-from django.db.models import Max
+from django.db.models import Avg, Max, Min
 from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect, render
 from django.urls import reverse
 
-from .models import Match
+from .models import Match, MatchEvent
 
 
 def match_list(request):
@@ -41,14 +41,13 @@ def match_list(request):
     # Group matches by test_group_id and create pivot structure
     grouped_matches = defaultdict(dict[str,Match])
     all_opponents = set()
-    difficulty_groups = defaultdict(lambda: defaultdict(list))  # difficulty -> race -> builds
+    difficulty_groups = defaultdict(list)  # race -> builds
     
     # Track win/loss counts for each opponent
     opponent_stats = defaultdict(lambda: {'victories': 0, 'total_games': 0})
-    replay_base_dir = r'C:\Users\inter\Documents\StarCraft II\Replays\Multiplayer\docker'
     
     for match in matches:
-        opponent_name = f"{match.opponent_race}-{match.opponent_difficulty}-{match.opponent_build}"
+        opponent_name = f"{match.opponent_race}-{match.opponent_build}"
         all_opponents.add(opponent_name)
         # Store both result and duration
         grouped_matches[match.test_group_id][opponent_name] = match
@@ -58,41 +57,42 @@ def match_list(request):
                 opponent_stats[opponent_name]['victories'] += 1
         
         # Build hierarchical structure for headers
-        difficulty_groups[match.opponent_difficulty][match.opponent_race].append(match.opponent_build)
+        difficulty_groups[match.opponent_race].append(match.opponent_build)
     
     # Sort and deduplicate builds within each race/difficulty group
-    for difficulty in difficulty_groups:
-        for race in difficulty_groups[difficulty]:
-            difficulty_groups[difficulty][race] = sorted(list(set(difficulty_groups[difficulty][race])))
+    for race in difficulty_groups:
+        difficulty_groups[race] = sorted(list(set(difficulty_groups[race])))
     
     # Create ordered list of opponents for consistent column ordering
     sorted_opponents = []
-    # Sort difficulties by the defined order instead of alphabetically
-    sorted_difficulties = sorted(difficulty_groups.keys(), key=lambda x: difficulty_order.index(x) if x in difficulty_order else 999)
     
     # Build header structure and opponent order
+    # When not filtering by difficulty, collapse all difficulties into one set of race-build columns
     header_structure = []
-    for difficulty in sorted_difficulties:
-        races = sorted(difficulty_groups[difficulty].keys())
-        difficulty_span = sum(len(difficulty_groups[difficulty][race]) for race in races)
-        
-        race_headers = []
-        for race in races:
-            builds = difficulty_groups[difficulty][race]
-            for build in builds:
-                opponent_name = f"{race}-{difficulty}-{build}"
-                sorted_opponents.append(opponent_name)
-            
-            race_headers.append({
-                'name': race,
-                'span': len(builds),
-                'builds': builds
-            })
-        
+    
+    # All difficulties - collapse into unique race-build combinations
+    # Collect all unique race-build combinations across all difficulties
+    race_build_map = defaultdict(set)  # race -> set of builds
+    
+    for race in difficulty_groups:
+        for build in difficulty_groups[race]:
+            race_build_map[race].add(build)
+    
+    # Create sorted_opponents as just the unique race-build combinations
+    # We'll match based on the row's difficulty later
+    for race in sorted(race_build_map.keys()):
+        builds = sorted(list(race_build_map[race]))
+        for build in builds:
+            # Store as race-build (without difficulty)
+            sorted_opponents.append(f"{race}-{build}")
+    
+    # Build a single header structure with all races
+    for race in sorted(race_build_map.keys()):
+        builds = sorted(list(race_build_map[race]))
         header_structure.append({
-            'difficulty': difficulty,
-            'span': difficulty_span,
-            'races': race_headers
+            'name': race,
+            'span': len(builds),
+            'builds': builds
         })
     
     # Sort test groups for consistent display
@@ -102,7 +102,16 @@ def match_list(request):
     max_group_id = max(sorted_groups) if sorted_groups else -1
     pivot_data = []
     for group_id in sorted_groups:
-        row = {'test_group_id': group_id, 'results': []}
+        row = {'test_group_id': group_id, 'results': [], 'difficulty': None}
+        
+        # Determine difficulty for this test group (all matches in a group have same difficulty)
+        if not selected_difficulty:
+            # Get difficulty from first match in this group
+            for match in grouped_matches[group_id].values():
+                row['difficulty'] = match.opponent_difficulty
+                break
+        else:
+            row['difficulty'] = selected_difficulty
         
         # Calculate win percentage and average duration for this group
         group_victories = 0
@@ -110,7 +119,7 @@ def match_list(request):
         group_total_duration = 0
         group_games_with_duration = 0
         
-        for opponent in sorted_opponents:
+        for opponent in sorted_opponents:                
             match_data = grouped_matches[group_id].get(opponent, None)
             if not match_data:
                 row['results'].append(None)
@@ -162,56 +171,36 @@ def match_list(request):
             win_percentages.append("-")
 
     # Calculate win rates by race within each difficulty
-    for difficulty_group in header_structure:
-        difficulty_name = difficulty_group['difficulty']
-        for race_group in difficulty_group['races']:
-            race_name = race_group['name']
-            race_victories = 0
-            race_total_games = 0
-            
-            # Count wins/losses for this specific race-difficulty combination
-            for opponent in sorted_opponents:
-                if opponent.startswith(f"{race_name}-{difficulty_name}-"):
-                    stats = opponent_stats[opponent]
-                    race_total_games += stats['total_games']
-                    race_victories += stats['victories']
-            
-            if race_total_games > 0:
-                race_win_percentage = (race_victories / race_total_games) * 100
-                race_group['win_rate'] = f"{race_win_percentage:.0f}%"
-            else:
-                race_group['win_rate'] = "-"
-            
-            # Add win rates to individual builds
-            for i, build in enumerate(race_group['builds']):
-                opponent_name = f"{race_name}-{difficulty_name}-{build}"
-                stats = opponent_stats[opponent_name]
-                if stats['total_games'] > 0:
-                    build_win_percentage = (stats['victories'] / stats['total_games']) * 100
-                    race_group['builds'][i] = f"{build} {build_win_percentage:.0f}%"
-                else:
-                    race_group['builds'][i] = f"{build} -"
-
-    # Calculate win rates by difficulty
-    difficulty_win_rates = {}
-    for difficulty in sorted_difficulties:
-        difficulty_victories = 0
-        difficulty_total_games = 0
-        for opponent in sorted_opponents:
-            if f"-{difficulty}-" in opponent:
-                stats = opponent_stats[opponent]
-                difficulty_total_games += stats['total_games']
-                difficulty_victories += stats['victories']
+    for race_group in header_structure:
+        race_name = race_group['name']
+        race_victories = 0
+        race_total_games = 0
         
-        if difficulty_total_games > 0:
-            difficulty_win_percentage = (difficulty_victories / difficulty_total_games) * 100
-            difficulty_win_rates[difficulty] = f"{difficulty_win_percentage:.0f}%"
+        # All difficulties - aggregate across all difficulties for this race
+        for opponent_key in opponent_stats.keys():
+            # Match race at start and extract difficulty and build
+            if opponent_key.startswith(f"{race_name}-"):
+                stats = opponent_stats[opponent_key]
+                race_total_games += stats['total_games']
+                race_victories += stats['victories']
+        
+        if race_total_games > 0:
+            race_win_percentage = (race_victories / race_total_games) * 100
+            race_group['win_rate'] = f"{race_win_percentage:.0f}%"
         else:
-            difficulty_win_rates[difficulty] = "-"
-
-    # Add difficulty win rates to header structure
-    for difficulty_group in header_structure:
-        difficulty_group['win_rate'] = difficulty_win_rates.get(difficulty_group['difficulty'], "-")
+            race_group['win_rate'] = "-"
+        
+        # Add win rates to individual builds
+        for i, build in enumerate(race_group['builds']):
+            stats = opponent_stats[f"{race_name}-{build}"]
+            build_total_games = stats['total_games']
+            build_victories = stats['victories']
+            
+            if build_total_games > 0:
+                build_win_percentage = (build_victories / build_total_games) * 100
+                race_group['builds'][i] = f"{build} {build_win_percentage:.0f}%"
+            else:
+                race_group['builds'][i] = f"{build} -"
 
     return render(request, 'test_lab/match_list.html', {
         'pivot_data': pivot_data,
@@ -547,4 +536,120 @@ def map_breakdown(request):
         'opponents': sorted_opponents,
         'header_structure': header_structure,
         'selected_difficulty': selected_difficulty
+    })
+
+
+def building_timing(request):
+    """View to display earliest building construction times per test group."""
+    from collections import defaultdict
+
+    # Get all building events with their match's test_group_id
+    # Using Django ORM: Get minimum game_timestamp for each (test_group_id, building_type) combination
+    building_events = (
+        MatchEvent.objects
+        .using('sc2bot_test_lab_db_2')
+        .filter(type='Building')
+        .values('match__test_group_id', 'match_id', 'message', 'match__result')
+        .annotate(earliest_time=Min('game_timestamp'))
+        .order_by('match__test_group_id', 'message')
+    )
+    
+    # Organize data into a pivot structure
+    # {test_group_id: {building_type: {min, max, avg}}}
+    grouped_data = defaultdict(dict[str, dict[str, any]])
+    all_building_types = set()
+    
+    for event in building_events:
+        test_group_id = event['match__test_group_id']
+        building_type = event['message']
+        earliest_time = event['earliest_time']
+        result = event['match__result'][0]
+        
+        if building_type not in grouped_data[test_group_id]:
+            grouped_data[test_group_id][building_type] = {
+                "min": earliest_time,
+                "max": earliest_time,
+                "avg": earliest_time,
+                "count": 1,
+                "min_result": result,
+                "max_result": result,
+            }
+            all_building_types.add(building_type)
+        else:
+            current = grouped_data[test_group_id][building_type]
+            if earliest_time < current["min"]:
+                current["min"] = earliest_time
+                current["min_result"] = result
+            if earliest_time > current["max"]:
+                current["max"] = earliest_time
+                current["max_result"] = result
+            # For average, we will need to calculate it later
+            current["avg"] += earliest_time  # Temporarily sum for average calculation
+            current["count"] = current["count"] + 1
+    for test_group_id in grouped_data:
+        for building_type in grouped_data[test_group_id]:
+            current = grouped_data[test_group_id][building_type]
+            current["avg"] = current["avg"] / current["count"]
+            del current["count"]  # Remove count as it's no longer needed
+
+    # Sort building types alphabetically for consistent column order
+    building_types_list = list(all_building_types)
+    
+    # Sort test groups in descending order (newest first)
+    sorted_groups = sorted(grouped_data.keys(), reverse=True)
+
+    # Calculate average timing for each building type across all test groups
+    avg_timings = []
+    for building_type in building_types_list:
+        timings: List[float | None] = [grouped_data[gid].get(building_type).get("avg") for gid in sorted_groups if grouped_data[gid].get(building_type) is not None] # type: ignore
+        if timings:
+            avg_timings.append(sum(timings) / len(timings)) # type: ignore
+        else:
+            avg_timings.append(None)
+
+    # Sort building types by average timing
+    sorted_building_types, avg_timings = zip(*sorted(zip(building_types_list, avg_timings), key=lambda x: x[1]))
+    
+    # Create a dict for quick lookup of average timings
+    avg_timing_dict = dict(zip(sorted_building_types, avg_timings))
+    
+    # Create pivot table data with performance class
+    pivot_data = []
+    for group_id in sorted_groups:
+        row = {
+            'test_group_id': group_id,
+            'timings': []
+        }
+        for building_type in sorted_building_types:
+            timing = grouped_data[group_id].get(building_type)
+            if timing and avg_timing_dict.get(building_type):
+                avg = avg_timing_dict[building_type]
+                diff = timing['avg'] - avg
+                
+                # Determine performance class
+                if diff < -10:
+                    performance_class = 'much-faster'
+                elif diff < -5:
+                    performance_class = 'faster'
+                elif diff < 0:
+                    performance_class = 'slightly-faster'
+                elif diff > 10:
+                    performance_class = 'much-slower'
+                elif diff > 5:
+                    performance_class = 'slower'
+                elif diff > 0:
+                    performance_class = 'slightly-slower'
+                else:
+                    performance_class = 'average'
+                
+                timing['performance_class'] = performance_class
+            
+            row['timings'].append(timing)
+        pivot_data.append(row)
+    
+    
+    return render(request, 'test_lab/building_timing.html', {
+        'pivot_data': pivot_data,
+        'building_types': sorted_building_types,
+        'avg_timings': avg_timings,
     })
